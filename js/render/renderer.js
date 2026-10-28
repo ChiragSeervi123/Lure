@@ -6,14 +6,18 @@ import { metersPerUnitAt } from '../input/scroll.js';
 import * as background from './layers/background.js';
 import * as surface from './layers/surface.js';
 import * as particles from './layers/particles.js';
+import * as props from './layers/props.js';
+import * as scratches from './layers/scratches.js';
 import * as fish from './layers/fish.js';
 import * as creatures from './layers/creatures.js';
 import * as companion from './layers/companion.js';
+import * as flashlight from './layers/flashlight.js';
 import * as ui from './layers/ui.js';
 import * as pointer from '../input/pointer.js';
 
-// Back to front (spec §6.3). World layers draw, then everything that glows through the dark.
-const world = [background, surface, particles, fish, creatures, companion];
+// Back to front (spec §6.3). World layers draw, the darkness mask covers them,
+// then everything that glows shows through the dark.
+const world = [background, surface, particles, props, scratches, fish, creatures, companion];
 const overlay = [ui, pointer];
 
 let canvas;
@@ -44,6 +48,7 @@ export function inView(y, extra = 0) {
 }
 
 export function render(dt) {
+  flashlight.update(dt);
   for (const layer of world) layer.update?.(dt);
   for (const layer of overlay) layer.update?.(dt);
 
@@ -57,6 +62,7 @@ export function render(dt) {
   background.draw(ctx, state.view);
   creatures.drawFar?.(ctx, state.view);
   for (const layer of world) if (layer !== background) layer.draw?.(ctx, state.view);
+  flashlight.draw(ctx, state.view);
 
   ctx.globalCompositeOperation = 'lighter';
   for (const layer of world) layer.glow?.(ctx, state.view);

@@ -3,6 +3,7 @@
 
 import { config } from '../config.js';
 import { rand } from '../math.js';
+import { setPosition, orbitPosition } from './spatial.js';
 
 export const synth = {};
 
@@ -318,4 +319,206 @@ synth.groan = (ctx, dest, o, audio) => {
   vib.connect(outGain(ctx, s.frequency, 1.6));
   s.connect(filter(ctx, 'lowpass', 260, 2)).connect(env);
   return oneShot(ctx, g, [s, vib], len + 0.1);
+};
+
+// --- Act 3 ----------------------------------------------------------------------
+
+// Endless falling tone: Shepard–Risset glissando, octave-spaced sines gliding down under a bell curve.
+synth.shepard_down = (ctx, dest, o) => {
+  const voices = 8;
+  const fmin = 40;
+  const period = config.audio.shepard.seconds;
+  const g = outGain(ctx, dest, 0);
+  fadeIn(ctx, g, o.gain ?? config.audio.shepard.gain, o.fadeIn ?? 4);
+  const lp = filter(ctx, 'lowpass', 2400);
+  lp.connect(g);
+  const parts = [];
+  for (let i = 0; i < voices; i++) {
+    const s = osc(ctx, 'sine', fmin);
+    const level = ctx.createGain();
+    level.gain.value = 0;
+    s.connect(level).connect(lp);
+    parts.push({ s, level });
+  }
+  let t = 0;
+  const h = loop(ctx, g, parts.map((p) => p.s), {
+    update(dt) {
+      t += dt;
+      const now = ctx.currentTime;
+      parts.forEach((p, i) => {
+        const pos = (((i / voices - t / period) % 1) + 1) % 1;
+        p.s.frequency.setTargetAtTime(fmin * Math.pow(2, pos * voices), now, 0.03);
+        p.level.gain.setTargetAtTime(0.5 - 0.5 * Math.cos(2 * Math.PI * pos), now, 0.03);
+      });
+    },
+  });
+  h.update(0);
+  return h;
+};
+
+// Metal stress: resonant filtered noise with a shudder, plus low clicks.
+synth.creak = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const len = rand(0.45, 0.8);
+  const g = outGain(ctx, dest, o.gain ?? 0.12);
+  const src = noise(ctx, audio);
+  const f = rand(500, 900);
+  const bp = filter(ctx, 'bandpass', f, 14);
+  bp.frequency.setValueAtTime(f, t);
+  bp.frequency.linearRampToValueAtTime(f * rand(0.8, 1.2), t + len);
+  const shudder = ctx.createGain();
+  shudder.gain.value = 0.5;
+  const lfo = osc(ctx, 'square', rand(14, 24));
+  lfo.connect(outGain(ctx, shudder.gain, 0.5));
+  const env = ctx.createGain();
+  envelope(env.gain, t, 0.05, 1, len);
+  src.connect(bp).connect(shudder).connect(env).connect(g);
+  for (let i = 0; i < 3; i++) {
+    const at = t + rand(0, len);
+    const click = osc(ctx, 'sine', rand(70, 110));
+    const ce = ctx.createGain();
+    envelope(ce.gain, at, 0.002, 0.6, 0.03);
+    click.connect(ce).connect(g);
+    click.start(at);
+    click.stop(at + 0.06);
+  }
+  return oneShot(ctx, g, [src, lfo], len + 0.1);
+};
+
+// Breathing: filtered noise with an in/out envelope. set('rate', breaths per second), set('ragged', 0–1).
+function breath(ctx, dest, o, audio, freq, rate) {
+  const g = outGain(ctx, dest, 0);
+  fadeIn(ctx, g, o.gain ?? config.audio.breath.gain, 1.5);
+  const src = noise(ctx, audio);
+  const bp = filter(ctx, 'bandpass', freq, 0.9);
+  const env = ctx.createGain();
+  env.gain.value = 0;
+  src.connect(bp).connect(env).connect(g);
+  const params = { rate, ragged: 0 };
+  let phase = Math.random();
+  return loop(ctx, g, [src], {
+    set(name, value) { params[name] = value; },
+    update(dt) {
+      const jitter = 1 + (Math.random() - 0.5) * params.ragged * 1.6;
+      phase = (phase + dt * params.rate * jitter) % 1;
+      // inhale 0–0.4, pause, exhale 0.5–0.95
+      let level = 0;
+      if (phase < 0.4) level = Math.sin((phase / 0.4) * Math.PI) * 0.8;
+      else if (phase > 0.5 && phase < 0.95) level = Math.sin(((phase - 0.5) / 0.45) * Math.PI);
+      const now = ctx.currentTime;
+      env.gain.setTargetAtTime(level * (1 + params.ragged * 0.4 * Math.random()), now, 0.04);
+      bp.frequency.setTargetAtTime(phase < 0.45 ? freq * 1.3 : freq * 0.8, now, 0.08);
+    },
+  });
+}
+
+synth.breath_helmet = (ctx, dest, o, audio) => breath(ctx, dest, o, audio, 1100, o.rate ?? 0.25);
+synth.breath_other = (ctx, dest, o, audio) => breath(ctx, dest, o, audio, 620, o.rate ?? 0.21);
+
+// Thump-thump: two short low sine thumps. set('bpm', n).
+synth.heartbeat = (ctx, dest, o) => {
+  const g = outGain(ctx, dest, o.gain ?? config.audio.heartbeat.gain);
+  const params = { bpm: o.bpm ?? 60 };
+  const keepAlive = osc(ctx, 'sine', 1);
+  keepAlive.connect(outGain(ctx, g, 0));
+  let wait = 0.2;
+  function thump(at, level) {
+    const s = osc(ctx, 'sine', 62);
+    s.frequency.setValueAtTime(62, at);
+    s.frequency.exponentialRampToValueAtTime(38, at + 0.14);
+    const e = ctx.createGain();
+    envelope(e.gain, at, 0.008, level, 0.16);
+    s.connect(e).connect(g);
+    s.start(at);
+    s.stop(at + 0.2);
+  }
+  return loop(ctx, g, [keepAlive], {
+    set(name, value) { params[name] = value; },
+    update(dt) {
+      wait -= dt;
+      if (wait > 0) return;
+      wait += 60 / params.bpm;
+      const at = ctx.currentTime + 0.02;
+      thump(at, 1);
+      thump(at + Math.min(0.16, 18 / params.bpm), 0.7);
+    },
+  });
+};
+
+// Ping with an echo tail. o.echoes adds extra returns (the sonar lies).
+synth.sonar_ping = (ctx, dest, o) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.07);
+  const delay = ctx.createDelay(1);
+  delay.delayTime.value = 0.32;
+  const fb = outGain(ctx, delay, 0.42);
+  delay.connect(filter(ctx, 'lowpass', 3000)).connect(fb);
+  delay.connect(g);
+  const pings = [[t, 1000, 1]];
+  for (let i = 0; i < (o.echoes ?? 0); i++) pings.push([t + rand(0.15, 1.6), rand(880, 1120), rand(0.25, 0.6)]);
+  const sources = [];
+  for (const [at, f, level] of pings) {
+    const s = osc(ctx, 'sine', f);
+    const e = ctx.createGain();
+    envelope(e.gain, at, 0.004, level, 0.28);
+    s.connect(e);
+    e.connect(g);
+    e.connect(delay);
+    s.start(at);
+    s.stop(at + 0.35);
+    sources.push(s);
+  }
+  const h = loopLikeStop(ctx, g, sources);
+  setTimeout(() => { h.done = true; }, 3500);
+  return h;
+};
+
+// Unintelligible whispers: bandpassed noise with fast random formants, orbiting the head (HRTF).
+synth.whisper = (ctx, dest, o, audio) => {
+  const len = o.seconds ?? 4;
+  const g = outGain(ctx, dest, 0);
+  fadeIn(ctx, g, o.gain ?? 0.22, 0.6);
+  const src = noise(ctx, audio);
+  const f1 = filter(ctx, 'bandpass', 1200, 9);
+  const f2 = filter(ctx, 'bandpass', 2600, 11);
+  const syllable = ctx.createGain();
+  syllable.gain.value = 0;
+  src.connect(f1).connect(syllable);
+  src.connect(f2).connect(syllable);
+  syllable.connect(g);
+  let angle = Math.random() * Math.PI * 2;
+  let age = 0;
+  let nextSyllable = 0;
+  const h = loop(ctx, g, [src], {
+    update(dt) {
+      age += dt;
+      const now = ctx.currentTime;
+      angle += dt * (o.orbit ?? 1.1);
+      if (h.panner) setPosition(ctx, h.panner, orbitPosition(angle, 1.2, 0.1));
+      nextSyllable -= dt;
+      if (nextSyllable <= 0) {
+        nextSyllable = rand(0.08, 0.22);
+        syllable.gain.setTargetAtTime(Math.random() < 0.75 ? rand(0.5, 1) : 0, now, 0.02);
+        f1.frequency.setTargetAtTime(rand(700, 1800), now, 0.03);
+        f2.frequency.setTargetAtTime(rand(1900, 3400), now, 0.03);
+      }
+      if (age > len) h.stop(0.6);
+    },
+  });
+  return h;
+};
+
+// Switch click.
+synth.flashlight_click = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.35);
+  const src = noise(ctx, audio);
+  const env = ctx.createGain();
+  envelope(env.gain, t, 0.001, 1, 0.012);
+  src.connect(filter(ctx, 'highpass', 1800)).connect(env).connect(g);
+  const tick = osc(ctx, 'square', 3100);
+  const te = ctx.createGain();
+  envelope(te.gain, t, 0.001, 0.15, 0.008);
+  tick.connect(te).connect(g);
+  return oneShot(ctx, g, [src, tick], 0.05);
 };

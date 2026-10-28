@@ -4,14 +4,14 @@ import { config } from '../config.js';
 import { state } from '../state.js';
 import { approach, clamp, lerp, rand, ramp, randRange } from '../math.js';
 import { scroll, actIndexAt } from '../input/scroll.js';
-import { audio, initAudio, preload, play, absoluteSilence } from '../audio/engine.js';
+import { audio, initAudio, preload, play, absoluteSilence, duck } from '../audio/engine.js';
 import { Lullaby } from '../audio/music.js';
 import { fire, isFired, after, resist, heldResistance } from './director.js';
 import { startDive, surfaceVisible } from '../render/layers/surface.js';
 import { burst } from '../render/layers/particles.js';
 import { spawnSchool, flee } from '../render/layers/fish.js';
 import { swimIn, setMode } from '../render/layers/companion.js';
-import { startWhale, spawnSilhouette } from '../render/layers/creatures.js';
+import { startWhale, spawnSilhouette, setEyes, setTentacles } from '../render/layers/creatures.js';
 
 const B = config.beats;
 
@@ -120,6 +120,64 @@ export const beats = [
       play('groan', { bus: 'ambience', gain: 0.16 + i * 0.06 });
     },
   })),
+
+  // B09: darkness; the flashlight clicks on, the Shepard tone starts, the radar appears
+  {
+    id: 'B09',
+    depth: B.flashlight,
+    run() {
+      play('flashlight_click');
+      state.light.on = true;
+      state.showRadar = true;
+      sounds.shepard = play('shepard_down', { bus: 'ambience' });
+      sounds.breath = play('breath_helmet', { bus: 'sfx' });
+      nextWhisper = state.time + randRange(config.audio.whisperInterval);
+    },
+  },
+
+  // B12: no more scrolling up. Trying creaks the hull and nudges you down.
+  {
+    id: 'B12',
+    depth: B.noUp,
+    run() {
+      scroll.allowUp = false;
+      scroll.onBlockedUp = () => play('creak', { gain: 0.07 });
+    },
+  },
+
+  // B15: eyes and the tentacle begin
+  {
+    id: 'B15',
+    depth: B.eyes,
+    run() {
+      setEyes(true);
+      setTentacles(true);
+    },
+  },
+
+  // B16: someone humming the lullaby, very faint and far below
+  {
+    id: 'B16',
+    depth: B.hum,
+    run() {
+      const h = config.audio.hum;
+      sounds.hum = new Lullaby({ hummed: true, position: [0, -h.far, -0.5], gain: h.gain * 0.3 });
+      sounds.hum.tempo = config.audio.lullaby.tempoMin;
+      sounds.hum.start(8);
+    },
+  },
+
+  // Heartbeat, faint at first (ramps up in Act 4)
+  {
+    id: 'B31.0',
+    depth: 2500,
+    run() {
+      sounds.heart = play('heartbeat', { bus: 'sfx', gain: config.audio.heartbeat.gain * 0.4, bpm: config.audio.heartbeat.from });
+    },
+  },
+
+  { id: 'B18', depth: B.mimic, run: () => setMode('MIMIC') },
+  { id: 'B19', depth: B.preempt, run: () => setMode('PREEMPT') },
 ];
 
 // --- continuous behavior between beats -------------------------------------------
@@ -139,7 +197,68 @@ export function ongoing(dt) {
 
   updatePacing(dt);
   updateMusic();
+  updateDark(dt);
+  updateBody();
+  updateIdle();
 }
+
+let nextWhisper = Infinity;
+let idle = false;
+const busLevel = { ambience: 1, music: 1, sfx: 1 };
+
+function setBus(name, level, seconds) {
+  if (Math.abs(busLevel[name] - level) < 0.01) return;
+  busLevel[name] = level;
+  duck(name, level, seconds);
+}
+
+// Darkness closes in toward 1,000 m; the battery drains through Act 4.
+function updateDark(dt) {
+  const l = config.light;
+  let target = l.darkness * ramp(state.depth, l.darkFrom, B.flashlight);
+  if (darknessOverride !== null) target = darknessOverride;
+  state.darkness = approach(state.darkness, target, 1.5, dt);
+  state.light.battery = state.light.batteryOverride ?? 1 - ramp(state.depth, l.batteryStart, l.batteryEnd);
+}
+
+// Breathing follows scroll speed and the heart; whispers circle the head now and then.
+function updateBody() {
+  const a = config.audio;
+  const fear = ramp(state.depth, B.trauma, B.blackout);
+  if (sounds.breath) {
+    sounds.breath.set('rate', lerp(a.breath.rate[0], a.breath.rate[1], Math.max(scroll.scrollSpeed, fear * 0.8)));
+    sounds.breath.set('ragged', ramp(state.depth, 6000, B.blackout));
+  }
+  if (sounds.heart) sounds.heart.set('bpm', lerp(a.heartbeat.from, a.heartbeat.to, fear));
+  if (sounds.hum) {
+    const near = ramp(state.depth, B.hum, B.blackout);
+    sounds.hum.setPosition([0, -lerp(a.hum.far, a.hum.near, near), -0.4]);
+  }
+  if (state.light.on && state.time > nextWhisper) {
+    nextWhisper = state.time + randRange(a.whisperInterval);
+    play('whisper', { position: 'left', seconds: rand(3, 5), gain: 0.18 });
+  }
+}
+
+// B13: in the dark, stop scrolling for 3 s and everything goes quiet except breathing, close by.
+function updateIdle() {
+  if (state.depth < B.flashlight || scroll.locked) return;
+  const wantIdle = scroll.idleTime > config.audio.idleAfter;
+  if (wantIdle && !idle) {
+    idle = true;
+    sounds.idleBreath = play('breath_other', { position: 'close', gain: 0.07 });
+  } else if (!wantIdle && idle) {
+    idle = false;
+    sounds.idleBreath?.stop(0.4);
+  }
+  const quiet = idle || nearSilence;
+  setBus('ambience', quiet ? 0 : 1, quiet ? 1.2 : 0.6);
+  setBus('music', quiet ? 0 : 1, quiet ? 1.2 : 0.6);
+  setBus('sfx', quiet ? 0.12 : 1, quiet ? 1.2 : 0.6);
+}
+
+let darknessOverride = null;
+let nearSilence = false;
 
 // Each act has a minimum duration: running ahead of it raises resistance (spec §5).
 function updatePacing(dt) {

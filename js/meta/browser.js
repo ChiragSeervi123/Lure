@@ -1,6 +1,19 @@
-// Browser meta: persistence and fullscreen.
+// Browser meta: persistence, fullscreen, time-of-day line.
+
+import { config } from '../config.js';
 
 const KEY_REDUCE_FLASHING = 'lure.reduceFlashing';
+
+// Late at night the scratch knows what time it is.
+export function timeOfDayLine(date = new Date()) {
+  const h = date.getHours();
+  const { lateFrom, lateUntil } = config.timeOfDay;
+  if (h >= lateFrom || h < lateUntil) {
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `it's ${h % 12 || 12}:${minutes} ${h >= 12 ? 'pm' : 'am'}. why are you still awake?`;
+  }
+  return 'why are you still here?';
+}
 
 export function loadReduceFlashing() {
   return read(KEY_REDUCE_FLASHING) === 'true';

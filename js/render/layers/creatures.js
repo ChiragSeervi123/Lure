@@ -2,8 +2,10 @@
 
 import { config } from '../../config.js';
 import { state } from '../../state.js';
-import { clamp, rgba } from '../../math.js';
+import { clamp, lerp, rand, randRange, rgba } from '../../math.js';
 import { pxPerMeter } from '../renderer.js';
+import { pointer } from '../../input/pointer.js';
+import { isLit } from './flashlight.js';
 
 // --- whale pass (B05): a moment of wonder ---------------------------------------
 
@@ -124,13 +126,163 @@ function updateSilhouettes(dt) {
   }
 }
 
+// --- glowing eyes (B15): fade when lit, come back closer, creep only while unlit -----
+
+const eyes = [];
+let eyesOn = false;
+let lastDepth = 0;
+
+export function setEyes(on) {
+  eyesOn = on;
+}
+
+function placeEye(e) {
+  const { w, h } = state.view;
+  const c = config.creatures.eyes;
+  const dist = lerp(440, 110, e.near) * rand(0.85, 1.15);
+  const a = rand(0, Math.PI * 2);
+  e.x = clamp(pointer.x + Math.cos(a) * dist, 30, w - 30);
+  e.y = clamp(pointer.y + Math.sin(a) * dist, 30, h - 30);
+  e.size = c.size * rand(0.8, 1.35);
+  e.alpha = 0;
+  e.mode = 'in';
+  e.near = Math.min(0.85, e.near + c.approach);
+}
+
+function updateEyes(dt) {
+  const c = config.creatures.eyes;
+  const moved = (state.depth - lastDepth) * pxPerMeter() * 0.5;
+  lastDepth = state.depth;
+  while (eyesOn && eyes.length < c.max) eyes.push({ mode: 'wait', wait: randRange(c.respawn), near: 0, alpha: 0 });
+
+  for (const e of eyes) {
+    if (e.mode !== 'wait') e.y -= moved;
+    if (!eyesOn && e.mode !== 'wait') e.mode = 'out';
+    if (e.mode === 'wait') {
+      e.wait -= dt;
+      if (e.wait <= 0 && eyesOn) placeEye(e);
+      continue;
+    }
+    if (e.mode === 'out') {
+      e.alpha -= dt / c.fadeSeconds;
+      if (e.alpha <= 0) {
+        e.alpha = 0;
+        e.mode = 'wait';
+        e.wait = randRange(c.respawn);
+      }
+      continue;
+    }
+    if (isLit(e.x, e.y) || e.y < -20 || e.y > state.view.h + 20) {
+      e.mode = 'out';
+      continue;
+    }
+    if (e.mode === 'in') {
+      e.alpha = Math.min(1, e.alpha + dt / 1.5);
+      if (e.alpha >= 1) e.mode = 'on';
+    }
+    // Weeping-angel rule: only moves while nobody is looking.
+    const dx = pointer.x - e.x;
+    const dy = pointer.y - e.y;
+    const d = Math.hypot(dx, dy) || 1;
+    e.x += (dx / d) * c.creep * dt;
+    e.y += (dy / d) * c.creep * dt;
+  }
+}
+
+function glowEyes(ctx) {
+  const c = config.creatures.eyes;
+  for (const e of eyes) {
+    if (e.alpha <= 0) continue;
+    const blink = Math.sin(state.time * 0.7 + e.near * 20) > 0.985 ? 0.15 : 1;
+    for (const side of [-1, 1]) {
+      const x = e.x + side * e.size * 3.4;
+      const g = ctx.createRadialGradient(x, e.y, 0, x, e.y, e.size * 4);
+      g.addColorStop(0, rgba(c.color, 0.9 * e.alpha));
+      g.addColorStop(0.3, rgba(c.color, 0.25 * e.alpha));
+      g.addColorStop(1, rgba(c.color, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(x - e.size * 4, e.y - e.size * 4, e.size * 8, e.size * 8);
+      ctx.fillStyle = rgba(c.color, e.alpha);
+      ctx.beginPath();
+      ctx.ellipse(x, e.y, e.size, e.size * 0.7 * blink, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// --- tentacle (Act 3): slides past just outside the flashlight, never inside --------
+
+let tentaclesOn = false;
+let tentacle = null;
+let nextTentacle = 0;
+
+export function setTentacles(on) {
+  tentaclesOn = on;
+  if (on) nextTentacle = state.time + randRange(config.creatures.tentacle.interval) * 0.5;
+}
+
+function updateTentacle(dt) {
+  const c = config.creatures.tentacle;
+  if (tentacle) {
+    tentacle.t += dt;
+    if (tentacle.t > c.seconds) tentacle = null;
+  } else if (tentaclesOn && state.light.on && state.time > nextTentacle) {
+    tentacle = { t: 0, a0: rand(0, Math.PI * 2), dir: Math.random() < 0.5 ? -1 : 1 };
+    nextTentacle = state.time + c.seconds + randRange(c.interval);
+  }
+}
+
+function drawTentacle(ctx) {
+  if (!tentacle || !state.light.on) return;
+  const c = config.creatures.tentacle;
+  const p = tentacle.t / c.seconds;
+  const R = state.light.radius * 1.04;
+  const head = tentacle.a0 + tentacle.dir * p * 2.4;
+  const tail = head - tentacle.dir * 1.4;
+  const n = 22;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let k = 0; k < n; k++) {
+    const t0 = k / n;
+    const t1 = (k + 1) / n;
+    const pt = (t) => {
+      const ang = lerp(tail, head, t);
+      const r = R + 16 * (1 - t) + Math.sin(t * 7 + tentacle.t * 3) * 6;
+      return [pointer.x + Math.cos(ang) * r, pointer.y + Math.sin(ang) * r];
+    };
+    const [x0, y0] = pt(t0);
+    const [x1, y1] = pt(t1);
+    ctx.strokeStyle = 'rgba(52, 60, 56, 0.96)';
+    ctx.lineWidth = lerp(30, 3, t0);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    if (k % 3 === 1) {
+      ctx.fillStyle = 'rgba(150, 150, 135, 0.5)';
+      const inward = Math.atan2(pointer.y - y0, pointer.x - x0);
+      ctx.beginPath();
+      ctx.arc(x0 + Math.cos(inward) * lerp(9, 1, t0), y0 + Math.sin(inward) * lerp(9, 1, t0), lerp(3.2, 0.8, t0), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 // --- layer ------------------------------------------------------------------------
 
 export function update(dt) {
   updateWhale(dt);
   updateSilhouettes(dt);
+  updateEyes(dt);
+  updateTentacle(dt);
 }
 
 export function draw(ctx, view) {
   drawWhale(ctx, view);
+  drawTentacle(ctx);
+}
+
+export function glow(ctx) {
+  glowEyes(ctx);
 }
