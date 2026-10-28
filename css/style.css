@@ -1,0 +1,129 @@
+:root {
+  --bg: #04080d;
+  --ink: #9fb2bc;
+  --ink-dim: #5e707a;
+  --mono: "Share Tech Mono", ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  background: var(--bg);
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Start screen (B00) */
+
+.start {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 1;
+  transition: opacity 1.5s ease;
+}
+
+.start[hidden] {
+  display: none;
+}
+
+.start.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.start__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 34em;
+}
+
+.start__title {
+  margin: 0;
+  font-size: clamp(16px, 2.2vw, 20px);
+  letter-spacing: 0.06em;
+}
+
+.start__warning {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+}
+
+.start button {
+  appearance: none;
+  border: 0;
+  padding: 4px 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.start button:focus-visible {
+  outline: 1px solid var(--ink-dim);
+  outline-offset: 4px;
+}
+
+.start__toggle {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+}
+
+.start__toggle::before {
+  content: "[ ] ";
+  content: "[ ] " / "";
+}
+
+.start__toggle[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.start__toggle[aria-pressed="true"]::before {
+  content: "[x] ";
+  content: "[x] " / "";
+}
+
+.start__begin {
+  margin-top: 26px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start__begin {
+    animation: none;
+  }
+}
