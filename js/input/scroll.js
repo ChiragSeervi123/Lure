@@ -54,7 +54,7 @@ export function updateScroll(dt) {
 }
 
 function push(units) {
-  if (!state.started) return;
+  if (!state.started || state.paused) return;
   scroll.idleTime = 0;
   if (scroll.locked || units === 0) return;
   if (units < 0 && !scroll.allowUp) {
@@ -72,12 +72,16 @@ function refuseUp() {
   scroll.onBlockedUp?.();
 }
 
+export function actIndexAt(depth) {
+  const i = config.acts.findIndex((a) => depth < a.end);
+  return i === -1 ? config.acts.length - 1 : i;
+}
+
 // Each act's metersPerScrollUnit, eased into the next act's over the act's final stretch
 // so the feel of a scroll never jumps at a boundary.
-function metersPerUnitAt(depth) {
+export function metersPerUnitAt(depth) {
   const acts = config.acts;
-  let i = acts.findIndex((a) => depth < a.end);
-  if (i === -1) i = acts.length - 1;
+  const i = actIndexAt(depth);
   const act = acts[i];
   const next = acts[i + 1];
   if (!next) return act.metersPerScrollUnit;
@@ -98,7 +102,7 @@ function onWheel(e) {
 }
 
 function onKey(e) {
-  if (!state.started || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (!state.started || state.paused || e.altKey || e.ctrlKey || e.metaKey) return;
   let units;
   switch (e.key) {
     case 'ArrowDown': units = config.scroll.arrowUnits; break;

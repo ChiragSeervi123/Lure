@@ -5,6 +5,10 @@ import { state } from './state.js';
 import { initScroll, updateScroll } from './input/scroll.js';
 import { initRenderer, render } from './render/renderer.js';
 import { loadReduceFlashing, saveReduceFlashing, requestFullscreen } from './meta/browser.js';
+import { initAudio, preload, play, update as updateAudio } from './audio/engine.js';
+import { Lullaby } from './audio/music.js';
+
+const SOUNDS = ['waves', 'splash', 'bubble_pop', 'chirp', 'chirp_corrupt'];
 
 let lastFrame = null;
 
@@ -19,6 +23,7 @@ function frame(now) {
 
   if (state.started) state.time += dt;
   updateScroll(dt);
+  updateAudio(dt);
   render(dt);
 
   requestAnimationFrame(frame);
@@ -42,9 +47,16 @@ function initStartScreen() {
   screen.addEventListener('click', () => begin(screen), { once: true });
 }
 
+// B01: audio context, fullscreen, fade in the surface.
 function begin(screen) {
+  initAudio();
+  preload(SOUNDS);
   requestFullscreen();
   state.started = true;
+
+  play('waves', { bus: 'ambience', loop: true });
+  new Lullaby().start();
+  window.addEventListener('pointerdown', () => play('chirp'));
 
   document.activeElement?.blur();
   screen.inert = true;
