@@ -522,3 +522,60 @@ synth.flashlight_click = (ctx, dest, o, audio) => {
   tick.connect(te).connect(g);
   return oneShot(ctx, g, [src, tick], 0.05);
 };
+
+// --- False relief -----------------------------------------------------------------
+
+// Warm soft chords: detuned triangles, slow attack.
+synth.warm_pad = (ctx, dest, o) => {
+  const g = outGain(ctx, dest, 0);
+  fadeIn(ctx, g, o.gain ?? 0.09, o.fadeIn ?? 4);
+  const lp = filter(ctx, 'lowpass', 900, 0.7);
+  const lfo = osc(ctx, 'sine', 0.07);
+  lfo.connect(outGain(ctx, lp.frequency, 250));
+  lp.connect(g);
+  const sources = [lfo];
+  for (const f of [130.81, 164.81, 196, 246.94]) {
+    for (const cents of [-7, 7]) {
+      const s = osc(ctx, 'triangle', f * Math.pow(2, cents / 1200));
+      s.connect(outGain(ctx, lp, 0.12));
+      sources.push(s);
+    }
+  }
+  return loop(ctx, g, sources);
+};
+
+// Underwater chimes: bell-like FM sines.
+synth.chime = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const f = o.freq ?? [1046.5, 1174.66, 1318.51, 1567.98, 1760][Math.floor(Math.random() * 5)];
+  const len = 2.6;
+  const g = outGain(ctx, dest, o.gain ?? 0.05);
+  g.connect(audio.reverbIn);
+  const carrier = osc(ctx, 'sine', f);
+  const mod = osc(ctx, 'sine', f * 3.5);
+  const index = ctx.createGain();
+  index.gain.setValueAtTime(f * 2, t);
+  index.gain.exponentialRampToValueAtTime(f * 0.05, t + 1.5);
+  mod.connect(index).connect(carrier.frequency);
+  const env = ctx.createGain();
+  envelope(env.gain, t, 0.003, 1, len);
+  carrier.connect(env).connect(g);
+  return oneShot(ctx, g, [carrier, mod], len + 0.1);
+};
+
+// Deep footstep-like thud: low sine drop plus a dull click.
+synth.thud = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.4);
+  const s = osc(ctx, 'sine', 95);
+  s.frequency.setValueAtTime(95, t);
+  s.frequency.exponentialRampToValueAtTime(34, t + 0.45);
+  const e = ctx.createGain();
+  envelope(e.gain, t, 0.006, 1, 0.55);
+  s.connect(e).connect(g);
+  const click = noise(ctx, audio, 'brown');
+  const ce = ctx.createGain();
+  envelope(ce.gain, t, 0.002, 0.8, 0.05);
+  click.connect(filter(ctx, 'lowpass', 420)).connect(ce).connect(g);
+  return oneShot(ctx, g, [s, click], 0.7);
+};

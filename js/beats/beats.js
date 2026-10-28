@@ -12,6 +12,7 @@ import { burst } from '../render/layers/particles.js';
 import { spawnSchool, flee } from '../render/layers/fish.js';
 import { swimIn, setMode } from '../render/layers/companion.js';
 import { startWhale, spawnSilhouette, setEyes, setTentacles } from '../render/layers/creatures.js';
+import { lightsOut } from '../render/layers/garden.js';
 
 const B = config.beats;
 
@@ -178,6 +179,54 @@ export const beats = [
 
   { id: 'B18', depth: B.mimic, run: () => setMode('MIMIC') },
   { id: 'B19', depth: B.preempt, run: () => setMode('PREEMPT') },
+
+  // B20: the false relief garden. Warm, open, glowing; the dread sounds fade away.
+  {
+    id: 'B20',
+    depth: B.garden,
+    run() {
+      calm = true;
+      darknessOverride = config.garden.darkness;
+      sounds.pad = play('warm_pad', { bus: 'ambience' });
+      sounds.drone?.stop(4);
+      sounds.shepard?.stop(4);
+      sounds.drone = null;
+      sounds.shepard = null;
+      setEyes(false);
+      setTentacles(false);
+      setMode('HAPPY');
+    },
+  },
+
+  // B21: the garden lights go out one by one, far to near, each thud closer. The last beside the cursor.
+  {
+    id: 'B21',
+    depth: B.lightsOut,
+    run() {
+      calm = false;
+      scroll.locked = true;
+      scroll.velocity = 0;
+      const g = config.garden;
+      lightsOut(
+        (next) => after(randRange(g.lightsOutGap), next),
+        (i, n) => {
+          const t = n > 1 ? i / (n - 1) : 1;
+          darknessOverride = lerp(g.darkness, config.light.darkness, t);
+          play('thud', { gain: lerp(0.2, 0.75, t), position: [rand(-1, 1) * (1 - t), -0.4, -lerp(7, 0.5, t)] });
+        },
+        () => after(1.4, () => {
+          sounds.pad?.stop(2);
+          sounds.shepard = play('shepard_down', { bus: 'ambience', fadeIn: 3 });
+          sounds.drone = play('drone_low', { bus: 'ambience', fadeIn: 3 });
+          darknessOverride = null;
+          state.showBattery = true;
+          setEyes(true);
+          setMode('PREEMPT');
+          scroll.locked = false;
+        }),
+      );
+    },
+  },
 ];
 
 // --- continuous behavior between beats -------------------------------------------
@@ -234,7 +283,11 @@ function updateBody() {
     const near = ramp(state.depth, B.hum, B.blackout);
     sounds.hum.setPosition([0, -lerp(a.hum.far, a.hum.near, near), -0.4]);
   }
-  if (state.light.on && state.time > nextWhisper) {
+  if (calm && state.time > nextChime) {
+    nextChime = state.time + randRange(config.garden.chimeInterval);
+    play('chime', { bus: 'ambience' });
+  }
+  if (state.light.on && !calm && state.time > nextWhisper) {
     nextWhisper = state.time + randRange(a.whisperInterval);
     play('whisper', { position: 'left', seconds: rand(3, 5), gain: 0.18 });
   }
@@ -242,8 +295,7 @@ function updateBody() {
 
 // B13: in the dark, stop scrolling for 3 s and everything goes quiet except breathing, close by.
 function updateIdle() {
-  if (state.depth < B.flashlight || scroll.locked) return;
-  const wantIdle = scroll.idleTime > config.audio.idleAfter;
+  const wantIdle = state.depth >= B.flashlight && !scroll.locked && !calm && scroll.idleTime > config.audio.idleAfter;
   if (wantIdle && !idle) {
     idle = true;
     sounds.idleBreath = play('breath_other', { position: 'close', gain: 0.07 });
@@ -259,6 +311,8 @@ function updateIdle() {
 
 let darknessOverride = null;
 let nearSilence = false;
+let calm = false;
+let nextChime = 0;
 
 // Each act has a minimum duration: running ahead of it raises resistance (spec §5).
 function updatePacing(dt) {

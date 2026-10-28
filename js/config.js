@@ -173,7 +173,8 @@ export const config = {
   garden: {
     start: 3520,
     end: 4160,
-    plants: 34,
+    plants: 48,
+    chimeInterval: [1.5, 4],
     colors: ['#5ef2e6', '#9a7bff'],
     darkness: 0.72,           // darkness overlay strength while the garden glows
     lightsOutGap: [0.45, 0.85],

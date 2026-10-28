@@ -8,6 +8,7 @@ import * as surface from './layers/surface.js';
 import * as particles from './layers/particles.js';
 import * as props from './layers/props.js';
 import * as scratches from './layers/scratches.js';
+import * as garden from './layers/garden.js';
 import * as fish from './layers/fish.js';
 import * as creatures from './layers/creatures.js';
 import * as companion from './layers/companion.js';
@@ -17,7 +18,7 @@ import * as pointer from '../input/pointer.js';
 
 // Back to front (spec §6.3). World layers draw, the darkness mask covers them,
 // then everything that glows shows through the dark.
-const world = [background, surface, particles, props, scratches, fish, creatures, companion];
+const world = [background, surface, particles, props, scratches, garden, fish, creatures, companion];
 const overlay = [ui, pointer];
 
 let canvas;
