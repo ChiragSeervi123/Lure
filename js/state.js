@@ -19,11 +19,13 @@ export const state = {
     battery: 1,
     batteryOverride: null,  // fixed battery level after the blackout
     intensity: 1,         // 0–1 after flicker
+    forced: null,         // scripted intensity (blackout clicks) overriding the flicker
     radius: 170,
     dead: false,          // ending: the flashlight never comes back
   },
 
   cursorHidden: false,
+  uiHidden: false,      // blackout and ending: no gauge, radar or cursor
   gaugeMode: 'normal',  // normal | flicker | error | dashes
   showBattery: false,
   showRadar: false,

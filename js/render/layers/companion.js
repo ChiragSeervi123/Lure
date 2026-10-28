@@ -36,11 +36,15 @@ export function swimIn() {
   nextLoop = state.time + config.companion.swimInSeconds;
 }
 
-// GONE: removed, a few bubbles rise from its last position.
-export function vanish() {
+// GONE: removed. A few bubbles rise from its last position (now, or later via lastBubbles()).
+export function vanish(withBubbles = true) {
   if (companion.mode === 'HIDDEN' || companion.mode === 'GONE') return;
-  burst(companion.x, companion.y, config.particles.goneBurst, { spread: 6, rise: [30, 70], size: [1.5, 3.5], life: [3, 5] });
+  if (withBubbles) lastBubbles();
   companion.mode = 'GONE';
+}
+
+export function lastBubbles() {
+  burst(companion.x, companion.y, config.particles.goneBurst, { spread: 6, rise: [30, 70], size: [1.5, 3.5], life: [3, 5] });
 }
 
 // LURE: a warm glow appears in the dark and drifts toward the camera.

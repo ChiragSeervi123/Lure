@@ -13,6 +13,7 @@ import * as fish from './layers/fish.js';
 import * as creatures from './layers/creatures.js';
 import * as companion from './layers/companion.js';
 import * as flashlight from './layers/flashlight.js';
+import * as effects from './layers/effects.js';
 import * as ui from './layers/ui.js';
 import * as pointer from '../input/pointer.js';
 
@@ -23,6 +24,8 @@ const overlay = [ui, pointer];
 
 let canvas;
 let ctx;
+let glowCanvas;
+let gctx;
 
 export function initRenderer(el) {
   canvas = el;
@@ -50,6 +53,7 @@ export function inView(y, extra = 0) {
 
 export function render(dt) {
   flashlight.update(dt);
+  effects.update(dt);
   for (const layer of world) layer.update?.(dt);
   for (const layer of overlay) layer.update?.(dt);
 
@@ -64,14 +68,42 @@ export function render(dt) {
   creatures.drawFar?.(ctx, state.view);
   for (const layer of world) if (layer !== background) layer.draw?.(ctx, state.view);
   flashlight.draw(ctx, state.view);
-
-  ctx.globalCompositeOperation = 'lighter';
-  for (const layer of world) layer.glow?.(ctx, state.view);
-  ctx.globalCompositeOperation = 'source-over';
+  drawGlow(dpr);
   ctx.restore();
 
-  for (const layer of overlay) layer.draw(ctx, state.view);
+  effects.draw(ctx, state.view);
+  if (!state.uiHidden) for (const layer of overlay) layer.draw(ctx, state.view);
   state.shake = Math.max(0, state.shake - dt * config.effects.shakeDecay * Math.max(1, state.shake));
+}
+
+// Everything that shows through the dark. In Act 4 it is drawn offscreen first so it can
+// be repeated in red and cyan (cheap chromatic aberration).
+function drawGlow(dpr) {
+  const offset = effects.aberration();
+  if (offset < 0.3) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (const layer of world) layer.glow?.(ctx, state.view);
+    ctx.globalCompositeOperation = 'source-over';
+    return;
+  }
+  if (!glowCanvas || glowCanvas.width !== canvas.width || glowCanvas.height !== canvas.height) {
+    glowCanvas = document.createElement('canvas');
+    glowCanvas.width = canvas.width;
+    glowCanvas.height = canvas.height;
+    gctx = glowCanvas.getContext('2d');
+  }
+  gctx.setTransform(1, 0, 0, 1, 0, 0);
+  gctx.clearRect(0, 0, glowCanvas.width, glowCanvas.height);
+  gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  gctx.globalCompositeOperation = 'lighter';
+  for (const layer of world) layer.glow?.(gctx, state.view);
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.drawImage(glowCanvas, 0, 0);
+  effects.drawAberration(ctx, glowCanvas, offset);
+  ctx.restore();
 }
 
 function resize() {

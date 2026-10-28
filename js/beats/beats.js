@@ -10,7 +10,10 @@ import { fire, isFired, after, resist, heldResistance } from './director.js';
 import { startDive, surfaceVisible } from '../render/layers/surface.js';
 import { burst } from '../render/layers/particles.js';
 import { spawnSchool, flee } from '../render/layers/fish.js';
-import { swimIn, setMode } from '../render/layers/companion.js';
+import { swimIn, setMode, vanish, lastBubbles } from '../render/layers/companion.js';
+import { startGhost, vanishCursor } from '../input/pointer.js';
+import { sonarLies } from '../render/layers/ui.js';
+import { glitch, staticFor } from '../render/layers/effects.js';
 import { startWhale, spawnSilhouette, setEyes, setTentacles } from '../render/layers/creatures.js';
 import { lightsOut } from '../render/layers/garden.js';
 
@@ -227,6 +230,124 @@ export const beats = [
       );
     },
   },
+
+  // B22: a second cursor copies yours, then stops copying.
+  { id: 'B22', depth: B.ghost, run: () => startGhost() },
+
+  // B23: the sonar lies. 1 echo, 3 echoes, then dozens all around.
+  { id: 'B23', depth: B.sonarLies, run: () => sonarLies([1, 3, 40]) },
+
+  // B24: near silence for 10 s, then three slow knocks on the helmet glass, close and centered.
+  {
+    id: 'B24',
+    depth: B.knocks,
+    run() {
+      const a = config.audio;
+      nearSilence = true;
+      resist(0.92, a.nearSilenceSeconds + a.knockGap * 3 + 1);
+      for (let i = 0; i < 3; i++) {
+        after(a.nearSilenceSeconds + i * a.knockGap, () => play('knock', { position: [0, 0, -0.3] }));
+      }
+      after(a.nearSilenceSeconds + a.knockGap * 3 + 1.5, () => { nearSilence = false; });
+    },
+  },
+
+  // B25: the surface (waves and the lullaby) plays from below.
+  {
+    id: 'B25',
+    depth: B.surfaceBelow,
+    run() {
+      const waves = play('waves', { position: 'below', gain: 0.3, fadeIn: 4 });
+      const box = new Lullaby({ position: 'below', gain: 0.22 });
+      box.start(4);
+      after(16, () => {
+        waves.stop(4);
+        box.stop(4);
+      });
+    },
+  },
+
+  // B26: your breathing stops. A different breathing carries on for 5 s.
+  {
+    id: 'B26',
+    depth: B.otherBreath,
+    run() {
+      sounds.breath?.stop(0.15);
+      const other = play('breath_other', { position: [0, 0, -0.25], gain: 0.1, rate: 0.3 });
+      after(5, () => {
+        other.stop(0.4);
+        sounds.breath = play('breath_helmet', { bus: 'sfx' });
+      });
+    },
+  },
+
+  // B28: the depth gauge stops being sure.
+  { id: 'B28', depth: B.gaugeGlitch, run: () => { state.gaugeMode = 'flicker'; } },
+  { id: 'B28.1', depth: B.gaugeError, run: () => { state.gaugeMode = 'error'; } },
+  { id: 'B28.2', depth: B.gaugeDashes, run: () => { state.gaugeMode = 'dashes'; } },
+
+  // B29: your cursor disappears for 4 s; the light still follows your hand.
+  { id: 'B29', depth: B.cursorVanish, run: () => vanishCursor(config.cursorVanishSeconds) },
+
+  // B30: radio static, with a barely audible whisper in it: "come back".
+  {
+    id: 'B30',
+    depth: B.staticWhisper,
+    run() {
+      play('radio_static');
+      staticFor(1.4);
+      glitch(0.25);
+      after(0.5, () => play('whisper', { position: [0, 0, -0.5], seconds: 0.9, gain: 0.05, orbit: 0 }));
+    },
+  },
+
+  // B32: click… click… click-click. Battery dead. Blackout and 8 s of absolute silence.
+  {
+    id: 'B32',
+    depth: B.blackout,
+    run() {
+      scroll.locked = true;
+      scroll.velocity = 0;
+      const dim = state.reduceFlashing ? [0.7, 0.45, 0.25] : [0.35, 1, 0.5];
+      const clicks = [0, 0.9, 1.8, 2.05];
+      clicks.forEach((t, i) => after(t, () => {
+        play('flashlight_click');
+        if (i < 3) state.light.forced = dim[i];
+      }));
+      after(2.1, () => {
+        state.light.on = false;
+        state.light.forced = null;
+        state.light.batteryOverride = 0;
+        darknessOverride = 1;
+        state.darkness = 1;
+        state.uiHidden = true;
+        setEyes(false);
+        vanish(false);
+        sounds.hum?.stop(0);
+        sounds.lullaby?.stop(0);
+        for (const k of ['breath', 'heart', 'drone', 'shepard', 'waves']) sounds[k] = null;
+        absoluteSilence(config.audio.silenceSeconds.blackout, { stopAll: true }).then(() => fire('B33'));
+      });
+    },
+  },
+
+  // B33: weak light returns. The companion is gone; bubbles rise where it was.
+  {
+    id: 'B33',
+    run() {
+      state.light.on = true;
+      state.light.batteryOverride = config.light.afterBlackoutBattery;
+      darknessOverride = null;
+      state.uiHidden = false;
+      lastBubbles();
+      setEyes(true);
+      scroll.locked = false;
+      const a = config.audio;
+      sounds.heart = play('heartbeat', { bus: 'sfx', bpm: a.heartbeat.to });
+      sounds.breath = play('breath_helmet', { bus: 'sfx' });
+      sounds.drone = play('drone_low', { bus: 'ambience', fadeIn: 6 });
+    },
+  },
 ];
 
 // --- continuous behavior between beats -------------------------------------------
@@ -278,7 +399,10 @@ function updateBody() {
     sounds.breath.set('rate', lerp(a.breath.rate[0], a.breath.rate[1], Math.max(scroll.scrollSpeed, fear * 0.8)));
     sounds.breath.set('ragged', ramp(state.depth, 6000, B.blackout));
   }
-  if (sounds.heart) sounds.heart.set('bpm', lerp(a.heartbeat.from, a.heartbeat.to, fear));
+  if (sounds.heart) {
+    sounds.heart.set('bpm', lerp(a.heartbeat.from, a.heartbeat.to, fear));
+    sounds.heart.gain.gain.setTargetAtTime(a.heartbeat.gain * lerp(0.4, 1, fear), audio.ctx.currentTime, 0.5);
+  }
   if (sounds.hum) {
     const near = ramp(state.depth, B.hum, B.blackout);
     sounds.hum.setPosition([0, -lerp(a.hum.far, a.hum.near, near), -0.4]);

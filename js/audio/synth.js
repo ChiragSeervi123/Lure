@@ -579,3 +579,63 @@ synth.thud = (ctx, dest, o, audio) => {
   click.connect(filter(ctx, 'lowpass', 420)).connect(ce).connect(g);
   return oneShot(ctx, g, [s, click], 0.7);
 };
+
+// --- Act 4 ------------------------------------------------------------------------
+
+// Knock on the helmet glass: short bandpassed click with a glassy resonance.
+synth.knock = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.5);
+  const src = noise(ctx, audio);
+  const e = ctx.createGain();
+  envelope(e.gain, t, 0.001, 1, 0.04);
+  src.connect(filter(ctx, 'bandpass', 1900, 3)).connect(e).connect(g);
+  const ring = osc(ctx, 'sine', 2350);
+  const re = ctx.createGain();
+  envelope(re.gain, t, 0.001, 0.25, 0.22);
+  ring.connect(re).connect(g);
+  const body = osc(ctx, 'sine', 180);
+  const be = ctx.createGain();
+  envelope(be.gain, t, 0.002, 0.6, 0.08);
+  body.connect(be).connect(g);
+  return oneShot(ctx, g, [src, ring, body], 0.3);
+};
+
+// Sharp crack: highpassed noise burst with a short metallic ring.
+synth.glass_crack = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.22);
+  const src = noise(ctx, audio);
+  const e = ctx.createGain();
+  envelope(e.gain, t, 0.001, 1, 0.07);
+  src.connect(filter(ctx, 'highpass', 3000)).connect(e).connect(g);
+  const f = rand(2800, 4200);
+  const ring = osc(ctx, 'sine', f);
+  const re = ctx.createGain();
+  envelope(re.gain, t, 0.001, 0.2, 0.18);
+  ring.connect(re).connect(g);
+  const ring2 = osc(ctx, 'sine', f * 1.47);
+  const re2 = ctx.createGain();
+  envelope(re2.gain, t, 0.001, 0.1, 0.12);
+  ring2.connect(re2).connect(g);
+  return oneShot(ctx, g, [src, ring, ring2], 0.3);
+};
+
+// Radio static burst: bandpassed white noise, choppy.
+synth.radio_static = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const len = o.seconds ?? 1.5;
+  const g = outGain(ctx, dest, o.gain ?? 0.16);
+  const src = noise(ctx, audio);
+  const chop = ctx.createGain();
+  chop.gain.value = 0.7;
+  const lfo = osc(ctx, 'square', 13);
+  lfo.connect(outGain(ctx, chop.gain, 0.3));
+  const e = ctx.createGain();
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.linearRampToValueAtTime(1, t + 0.02);
+  e.gain.setValueAtTime(1, t + len - 0.1);
+  e.gain.linearRampToValueAtTime(0.0001, t + len);
+  src.connect(filter(ctx, 'bandpass', 2000, 0.8)).connect(chop).connect(e).connect(g);
+  return oneShot(ctx, g, [src, lfo], len + 0.05);
+};

@@ -35,6 +35,10 @@ export function update(dt) {
     light.intensity = 0;
     return;
   }
+  if (light.forced !== null) {
+    light.intensity = light.forced;
+    return;
+  }
   const rate = flickerRate();
   if (state.reduceFlashing) {
     // No flicker at all: the light just dims as it would have flickered more.
@@ -88,4 +92,17 @@ export function draw(ctx, view) {
     mctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
   ctx.drawImage(mask, 0, 0, view.w, view.h);
+
+  // Faint haze in the beam, so the light is visible even with nothing in it.
+  if (light.on && light.intensity > 0) {
+    const r = light.radius;
+    const haze = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, r);
+    haze.addColorStop(0, `rgba(190, 215, 225, ${0.07 * light.intensity * state.darkness})`);
+    haze.addColorStop(1, 'rgba(190, 215, 225, 0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = haze;
+    ctx.fillRect(pointer.x - r, pointer.y - r, r * 2, r * 2);
+    ctx.restore();
+  }
 }
