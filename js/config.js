@@ -20,9 +20,9 @@ export const config = {
 
   pacing: {
     slack: 0.06,              // how far (fraction of the act) depth may run ahead of time before resisting
-    gain: 5,                  // resistance added per unit of overshoot
-    max: 0.93,
-    smoothing: 2,             // 1/s, how quickly pacing resistance follows its target
+    gain: 12,                 // resistance added per unit of overshoot; reaches 1 (no input) ~8% past the slack
+    max: 1,
+    smoothing: 6,             // 1/s, how quickly pacing resistance follows its target
   },
 
   scroll: {

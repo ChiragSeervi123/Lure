@@ -81,10 +81,54 @@ function drawWhale(ctx, view) {
   ctx.restore();
 }
 
+// --- edge silhouettes (B08): a huge dark shape at the screen edge, under 1.5 s ------
+
+const silhouettes = [];
+
+export function spawnSilhouette(index) {
+  const scales = config.creatures.silhouette.scales;
+  silhouettes.push({ t: 0, side: Math.random() < 0.5 ? -1 : 1, scale: scales[Math.min(index, scales.length - 1)], y: 0.3 + Math.random() * 0.4 });
+}
+
+export function drawFar(ctx, view) {
+  const s = config.creatures.silhouette;
+  for (const sil of silhouettes) {
+    const p = sil.t / s.seconds;
+    const env = Math.sin(Math.PI * Math.min(1, p));
+    const R = view.h * 0.55 * sil.scale;
+    // Closer appearances reach further into the screen and are darker.
+    const reach = R * (0.12 + 0.22 * sil.scale) * env;
+    const cx = sil.side < 0 ? -R + reach : view.w + R - reach;
+    const cy = view.h * sil.y + (p - 0.5) * R * 0.25;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(-sil.side, 1);
+    ctx.fillStyle = `rgba(2, 9, 16, ${(0.35 + 0.3 * sil.scale) * env})`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, R, R * 0.42, -0.08, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();     // dorsal fin breaking the curve
+    ctx.moveTo(-R * 0.45, -R * 0.36);
+    ctx.quadraticCurveTo(-R * 0.62, -R * 0.75, -R * 0.82, -R * 0.62);
+    ctx.quadraticCurveTo(-R * 0.72, -R * 0.4, -R * 0.62, -R * 0.3);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function updateSilhouettes(dt) {
+  for (let i = silhouettes.length - 1; i >= 0; i--) {
+    silhouettes[i].t += dt;
+    if (silhouettes[i].t > config.creatures.silhouette.seconds) silhouettes.splice(i, 1);
+  }
+}
+
 // --- layer ------------------------------------------------------------------------
 
 export function update(dt) {
   updateWhale(dt);
+  updateSilhouettes(dt);
 }
 
 export function draw(ctx, view) {

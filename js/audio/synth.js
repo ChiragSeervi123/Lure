@@ -265,3 +265,57 @@ synth.whale_call = (ctx, dest, o, audio) => {
   }
   return oneShot(ctx, g, sources, len);
 };
+
+// --- Act 2 ----------------------------------------------------------------------
+
+// Fish rushing away: bandpass noise sweep.
+synth.whoosh = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.3);
+  const src = noise(ctx, audio);
+  const bp = filter(ctx, 'bandpass', 300, 1.4);
+  bp.frequency.setValueAtTime(300, t);
+  bp.frequency.exponentialRampToValueAtTime(3200, t + 0.45);
+  bp.frequency.exponentialRampToValueAtTime(220, t + 1.2);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(1, t + 0.35);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + 1.25);
+  src.connect(bp).connect(env).connect(g);
+  return oneShot(ctx, g, [src], 1.3);
+};
+
+// Deep constant drone: two detuned low sines.
+synth.drone_low = (ctx, dest, o) => {
+  const g = outGain(ctx, dest, 0);
+  fadeIn(ctx, g, o.gain ?? config.audio.drone.gain, o.fadeIn ?? 4);
+  const lp = filter(ctx, 'lowpass', 220);
+  lp.connect(g);
+  const sources = [];
+  for (const [f, level] of [[45, 1], [47, 0.9], [90.5, 0.15]]) {
+    const s = osc(ctx, 'sine', f);
+    s.connect(outGain(ctx, lp, level));
+    sources.push(s);
+  }
+  return loop(ctx, g, sources);
+};
+
+// Huge distant groan: low sawtooth glide, lowpassed, long reverb.
+synth.groan = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const len = o.seconds ?? 3.6;
+  const g = outGain(ctx, dest, o.gain ?? 0.22);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(1, t + 0.8);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  env.connect(g);
+  env.connect(outGain(ctx, audio.reverbIn, 0.5));
+  const s = osc(ctx, 'sawtooth', 72);
+  s.frequency.setValueAtTime(72, t);
+  s.frequency.exponentialRampToValueAtTime(36, t + len);
+  const vib = osc(ctx, 'sine', 3.1);
+  vib.connect(outGain(ctx, s.frequency, 1.6));
+  s.connect(filter(ctx, 'lowpass', 260, 2)).connect(env);
+  return oneShot(ctx, g, [s, vib], len + 0.1);
+};

@@ -2,16 +2,16 @@
 
 import { config } from '../config.js';
 import { state } from '../state.js';
-import { rand, randRange } from '../math.js';
-import { scroll } from '../input/scroll.js';
-import { initAudio, preload, play } from '../audio/engine.js';
+import { approach, clamp, lerp, rand, ramp, randRange } from '../math.js';
+import { scroll, actIndexAt } from '../input/scroll.js';
+import { audio, initAudio, preload, play, absoluteSilence } from '../audio/engine.js';
 import { Lullaby } from '../audio/music.js';
-import { fire, isFired, resist, heldResistance } from './director.js';
+import { fire, isFired, after, resist, heldResistance } from './director.js';
 import { startDive, surfaceVisible } from '../render/layers/surface.js';
 import { burst } from '../render/layers/particles.js';
-import { spawnSchool } from '../render/layers/fish.js';
-import { swimIn } from '../render/layers/companion.js';
-import { startWhale } from '../render/layers/creatures.js';
+import { spawnSchool, flee } from '../render/layers/fish.js';
+import { swimIn, setMode } from '../render/layers/companion.js';
+import { startWhale, spawnSilhouette } from '../render/layers/creatures.js';
 
 const B = config.beats;
 
@@ -25,6 +25,7 @@ export const SOUND_NAMES = [
 export const sounds = {
   waves: null,
   lullaby: null,
+  drone: null,
 };
 
 let nextGull = 0;
@@ -88,10 +89,47 @@ export const beats = [
       play('whale_call', { bus: 'ambience' });
     },
   },
+
+  // B06: fish flee, then 2 s of total silence, then everything carries on as if nothing happened
+  {
+    id: 'B06',
+    depth: B.fishFlee,
+    run() {
+      flee();
+      play('whoosh');
+      after(0.8, () => absoluteSilence(config.audio.silenceSeconds.fishFlee));
+      setMode('NERVOUS');
+    },
+  },
+
+  // B07: low drone fades in while the lullaby detunes (mapped in ongoing)
+  {
+    id: 'B07',
+    depth: B.detuneFrom,
+    run() {
+      sounds.drone = play('drone_low', { bus: 'ambience', gain: 0, fadeIn: 0.1 });
+    },
+  },
+
+  // B08: edge silhouettes, each bigger and closer
+  ...B.silhouettes.map((depth, i) => ({
+    id: `B08.${i + 1}`,
+    depth,
+    run() {
+      spawnSilhouette(i);
+      play('groan', { bus: 'ambience', gain: 0.16 + i * 0.06 });
+    },
+  })),
 ];
 
-// Continuous behavior between beats.
-export function ongoing() {
+// --- continuous behavior between beats -------------------------------------------
+
+let actIndex = -1;
+let actEnter = 0;
+let pace = 0;
+let lullabyGain = config.audio.lullaby.gain;
+
+export function ongoing(dt) {
   if (!state.started) return;
 
   if (surfaceVisible() && state.time > nextGull) {
@@ -99,5 +137,47 @@ export function ongoing() {
     play('gulls', { bus: 'ambience' });
   }
 
-  scroll.resistance = heldResistance();
+  updatePacing(dt);
+  updateMusic();
+}
+
+// Each act has a minimum duration: running ahead of it raises resistance (spec §5).
+function updatePacing(dt) {
+  if (!state.dived) return;
+  const i = actIndexAt(state.depth);
+  if (i > actIndex) {
+    actIndex = i;
+    actEnter = state.time;
+  }
+  const act = config.acts[i];
+  const p = config.pacing;
+  let target = 0;
+  if (act.minActDuration > 0) {
+    const progress = (state.depth - act.start) / (act.end - act.start);
+    const elapsed = (state.time - actEnter) / act.minActDuration;
+    target = clamp((progress - elapsed - p.slack) * p.gain, 0, p.max);
+  }
+  pace = approach(pace, target, p.smoothing, dt);
+  scroll.resistance = Math.max(heldResistance(), act.baseResistance, pace);
+  scroll.autoDrift = scroll.locked ? 0 : act.autoDrift;
+}
+
+function updateMusic() {
+  const a = config.audio;
+  const d = state.depth;
+  const box = sounds.lullaby;
+  if (box) {
+    const base = state.returning ? a.lullaby.detuneMax : 0;
+    box.tempo = lerp(1, a.lullaby.tempoMin, ramp(d, B.detuneFrom, B.detuneTo));
+    box.detune = Math.max(base, lerp(0, a.lullaby.detuneMax, ramp(d, B.detuneFrom, B.detuneTo)));
+    box.dropout = lerp(0, a.lullaby.dropoutMax, ramp(d, 600, B.detuneTo));
+    const gain = a.lullaby.gain * (1 - ramp(d, B.flashlight, 1500));
+    if (Math.abs(gain - lullabyGain) > 0.004) {
+      lullabyGain = gain;
+      box.setGain(gain, 0.4);
+    }
+  }
+  if (sounds.drone && audio.ctx) {
+    sounds.drone.gain.gain.setTargetAtTime(a.drone.gain * ramp(d, B.detuneFrom, B.detuneTo), audio.ctx.currentTime, 0.5);
+  }
 }
