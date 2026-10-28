@@ -1,6 +1,9 @@
 // Background colors by depth: linear blend between the keyframes in config.palette.
+// A returning visitor sees the shallow water darker and grey.
 
 import { config } from '../config.js';
+import { state } from '../state.js';
+import { hexToRgb, ramp } from '../math.js';
 
 const keys = config.palette.map((k) => ({
   depth: k.depth,
@@ -15,17 +18,18 @@ export function paletteAt(depth) {
   const b = keys[i + 1] ?? a;
   const span = b.depth - a.depth;
   const t = span > 0 ? Math.min(1, Math.max(0, (depth - a.depth) / span)) : 0;
-  return { top: mix(a.top, b.top, t), bottom: mix(a.bottom, b.bottom, t) };
+  const grey = state.returning ? 1 - ramp(depth, 200, 1000) : 0;
+  return { top: mix(a.top, b.top, t, grey), bottom: mix(a.bottom, b.bottom, t, grey) };
 }
 
-function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+export function greyed(rgb, amount) {
+  const r = config.returning;
+  const lum = rgb[0] * 0.3 + rgb[1] * 0.59 + rgb[2] * 0.11;
+  return rgb.map((c) => (c + (lum - c) * r.grey * amount) * (1 - r.darken * amount));
 }
 
-function mix(a, b, t) {
-  const r = Math.round(a[0] + (b[0] - a[0]) * t);
-  const g = Math.round(a[1] + (b[1] - a[1]) * t);
-  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
-  return `rgb(${r}, ${g}, ${bl})`;
+function mix(a, b, t, grey) {
+  let c = [0, 1, 2].map((k) => a[k] + (b[k] - a[k]) * t);
+  if (grey > 0) c = greyed(c, grey);
+  return `rgb(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])})`;
 }

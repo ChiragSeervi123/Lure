@@ -82,7 +82,7 @@ export const config = {
     count: 6,
     fullUntil: 80,
     goneAt: 400,
-    alpha: 0.13,
+    alpha: 0.1,
     sway: 0.06,               // radians
     swaySpeed: 0.18,
   },

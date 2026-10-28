@@ -13,6 +13,7 @@ export const scroll = {
   idleTime: 0,        // seconds since the last input
   scrollSpeed: 0,     // 0–1, how fast the camera is moving as a fraction of the speed cap
   onBlockedUp: null,  // called when an upward scroll is refused
+  onInput: null,      // called on every scroll input, even while locked
 };
 
 let nudgeCooldown = 0;
@@ -56,6 +57,7 @@ export function updateScroll(dt) {
 function push(units) {
   if (!state.started || state.paused) return;
   scroll.idleTime = 0;
+  scroll.onInput?.(units);
   if (scroll.locked || units === 0) return;
   if (units < 0 && !scroll.allowUp) {
     refuseUp();

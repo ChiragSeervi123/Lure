@@ -212,3 +212,56 @@ synth.chirp = (ctx, dest, o) => {
 };
 
 synth.chirp_corrupt = (ctx, dest, o, audio) => synth.chirp(ctx, dest, { corruption: 0.6, ...o }, audio);
+
+// Distant gulls: short pitch-swept chirps.
+synth.gulls = (ctx, dest, o) => {
+  const t = ctx.currentTime;
+  const g = outGain(ctx, dest, o.gain ?? 0.035);
+  const sources = [];
+  const calls = 2 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < calls; i++) {
+    const start = t + i * rand(0.22, 0.32);
+    const f = rand(1250, 1500);
+    const s = osc(ctx, 'triangle', f);
+    s.frequency.setValueAtTime(f, start);
+    s.frequency.exponentialRampToValueAtTime(f * 0.62, start + 0.22);
+    const env = ctx.createGain();
+    env.gain.value = 0;
+    envelope(env.gain, start, 0.02, 1, 0.22);
+    s.connect(env).connect(g);
+    s.start(start);
+    s.stop(start + 0.3);
+    sources.push(s);
+  }
+  const h = loopLikeStop(ctx, g, sources);
+  sources[sources.length - 1].onended = () => { h.done = true; };
+  return h;
+};
+
+// Majestic call: slow sine glides with vibrato, mostly reverb.
+synth.whale_call = (ctx, dest, o, audio) => {
+  const t = ctx.currentTime;
+  const len = 5;
+  const g = outGain(ctx, dest, o.gain ?? 0.12);
+  const send = outGain(ctx, audio.reverbIn, o.gain ?? 0.12);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(1, t + 0.9);
+  env.gain.setValueAtTime(1, t + len - 1.6);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  env.connect(g);
+  env.connect(send);
+
+  const vib = osc(ctx, 'sine', 4);
+  const sources = [vib];
+  for (const [mult, level] of [[1, 1], [2, 0.3], [3.01, 0.08]]) {
+    const s = osc(ctx, 'sine', 160 * mult);
+    s.frequency.setValueAtTime(160 * mult, t);
+    s.frequency.linearRampToValueAtTime(108 * mult, t + 2.2);
+    s.frequency.linearRampToValueAtTime(150 * mult, t + len);
+    vib.connect(outGain(ctx, s.frequency, 3 * mult));
+    s.connect(outGain(ctx, env, level));
+    sources.push(s);
+  }
+  return oneShot(ctx, g, sources, len);
+};
